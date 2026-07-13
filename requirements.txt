@@ -1,0 +1,7 @@
+e2b==2.31.0
+psycopg[binary]==3.3.4
+psycopg-pool==3.3.1
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
+python-dotenv==1.2.2
+httpx==0.28.1

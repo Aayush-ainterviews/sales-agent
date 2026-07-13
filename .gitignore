@@ -1,0 +1,13 @@
+.env
+node_modules/
+runs/
+outputs/
+.DS_Store
+.venv/
+__pycache__/
+backend/registry.db
+backend/registry.db-*
+backups/
+tests/_tmp_*
+
+tests/_uvicorn_pkg.log

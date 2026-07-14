@@ -27,6 +27,7 @@ SANDBOX_CWD = "/home/user"       # pi stores sessions per-cwd; `-c` depends on t
 IDLE_PAUSE = 15 * 60             # sandbox auto-pauses after this much silence
 BUMP_INTERVAL = 5 * 60           # while a turn streams, push the countdown back this often
 TURN_WATCHDOG = 20 * 60          # abort a turn that runs longer than this
+STALE_CLAIM = TURN_WATCHDOG + 5 * 60   # a busy-slot older than this is treated as dead (client disconnected mid-turn) and cleared
 PROBE_TIMEOUT = 20               # daemon must answer get_state within this
 HEARTBEAT_INTERVAL = 15          # SSE keepalive when a turn is idle (Railway proxy would cut the stream)
 

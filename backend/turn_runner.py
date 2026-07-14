@@ -43,18 +43,26 @@ class TurnRunner:
         self._active: dict[str, str] = {}
         # concurrency (Phase 3, Q17): one turn per user; different users run in parallel
         self._guard = threading.Lock()             # protects _active and _busy
-        self._busy: set[str] = set()               # users with a turn streaming now
+        # user_id -> monotonic claim time. A stuck claim (client disconnected mid-turn so
+        # the streaming generator was suspended and its finally never ran) would otherwise
+        # wedge the user forever; a claim older than STALE_CLAIM is treated as dead and cleared.
+        self._busy: dict[str, float] = {}
         self._ulocks: dict[str, threading.Lock] = defaultdict(threading.Lock)  # serialize a user's provisioning
 
     def try_claim(self, user_id: str) -> bool:
         """Claim the user's single turn slot synchronously — fast, no I/O. Returns False
-        if a turn is already active (Q17 -> 409). Claiming here, at request admission and
-        BEFORE any slow provisioning, makes 'which concurrent request wins' deterministic:
-        the first admitted request holds the slot regardless of how slow provisioning is."""
+        if a turn is genuinely active (Q17 -> 409). A stale claim (older than a full turn's
+        max life) is auto-cleared and re-granted, so a mid-turn disconnect can't wedge the
+        user permanently."""
+        now = time.monotonic()
         with self._guard:
-            if user_id in self._busy:
+            claimed_at = self._busy.get(user_id)
+            if claimed_at is not None and (now - claimed_at) < config.STALE_CLAIM:
                 return False
-            self._busy.add(user_id)
+            if claimed_at is not None:
+                log.warning("clearing stale turn claim for %s (age %.0fs)", user_id, now - claimed_at)
+                self._active.pop(user_id, None)
+            self._busy[user_id] = now
         return True
 
     def run_claimed(self, user_id: str, message: str) -> Iterator[dict]:
@@ -68,7 +76,7 @@ class TurnRunner:
 
     def _release(self, user_id: str) -> None:
         with self._guard:
-            self._busy.discard(user_id)
+            self._busy.pop(user_id, None)
             self._active.pop(user_id, None)
 
     def run_turn(self, user_id: str, message: str) -> Iterator[dict]:
@@ -197,6 +205,7 @@ class TurnRunner:
     def reset(self, user_id: str) -> None:
         with self._guard:
             sid = self._active.pop(user_id, None)
+            self._busy.pop(user_id, None)   # also clears a stuck turn slot (manual unstick)
         if sid:
             self.daemons.forget(sid)
         self.sandboxes.reset(user_id)

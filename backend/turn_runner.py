@@ -202,6 +202,16 @@ class TurnRunner:
         except Exception as e:
             log.warning("feedback turn failed for %s: %r", user_id, e)
 
+    def busy_snapshot(self) -> dict[str, dict]:
+        """Per-user live turn state (admin monitor): who holds a slot and for how long."""
+        now = time.monotonic()
+        with self._guard:
+            return {
+                uid: {"busy_age_s": round(now - claimed_at),
+                      "active_sandbox": self._active.get(uid)}
+                for uid, claimed_at in self._busy.items()
+            }
+
     def reset(self, user_id: str) -> None:
         with self._guard:
             sid = self._active.pop(user_id, None)

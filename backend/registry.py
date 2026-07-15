@@ -40,6 +40,19 @@ class Registry:
             ).fetchone()
         return SandboxRow(user_id=r[0], sandbox_id=r[1], template_version=r[2], status=r[3]) if r else None
 
+    def list_all(self) -> list[dict]:
+        """Every known user + sandbox metadata (admin monitor). Never selects `log`."""
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT user_id, sandbox_id, template_version, status, updated_at "
+                "FROM sessions ORDER BY updated_at DESC"
+            ).fetchall()
+        return [
+            {"user_id": r[0], "sandbox_id": r[1], "template_version": r[2],
+             "status": r[3], "updated_at": r[4].isoformat() if r[4] else None}
+            for r in rows
+        ]
+
     def upsert(self, user_id: str, sandbox_id: str, template_version: str) -> SandboxRow:
         """Record (or replace) which sandbox a user owns. Called after every create."""
         with self.pool.connection() as conn:

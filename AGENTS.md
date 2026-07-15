@@ -48,7 +48,7 @@ concept, not on keywords. Requests are vague; work out the real intent, then act
 
 ## Flow
 
-1. **Break it down** — a short, explicit plan: what they want, the target, what
+1. **Break it down** — a detailed, explicit plan: what they want, the target, what
    to collect, the fields to return, which platform(s), and any genuine unknowns
    to confirm.
 2. **Confirm once, then run autonomously.** Ask only genuine unknowns, then

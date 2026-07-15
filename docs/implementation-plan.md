@@ -14,7 +14,8 @@
 > **Disaster restore ✅** (2026-07-13, test_restore 3/3) — dead sandbox → recreate + write the Postgres `log` back into the fresh sandbox (before daemon start) → `pi -c` continues it → history survives. `session_backup.restore_session` + sandbox_manager recovery branch.
 >
 > **Phase 4 ✅ COMPLETE** (2026-07-13) — outreach path, all checkpoints green: pending_batches queue (E 9/9), submit-batch skill + template v2 (14/14), batch_collector (G 6/6), ZeptoMail send_executor with SEND_OVERRIDE_TO safety net (H 2/2), approval endpoints + feedback turn (I 7/7 end-to-end incl. real send). Details: docs/phase-4-plan.md.
-> Phase 5 (ops: packaging, secrets, logs, Railway deploy) ⬅ next.
+> **Phase 5 in progress** — packaging (requirements.txt, railway.json single-instance+healthcheck, runtime 3.12), SSE keepalive, structured JSON logs + turn_complete metrics, CORS, boot-time secret asserts — all ✅ (test_packaging 4/4). **Deployed LIVE to Railway 2026-07-13**: repo on GitHub (Aayush-ainterviews/sales-agent), app service in the production-postgres project, `DATABASE_URL=${{production-postgres.DATABASE_URL}}`, `/health` 200 at sales-agent-production-*.up.railway.app. **v1 LIVE & VERIFIED IN PRODUCTION (2026-07-13):** E1 turn over SSE → LIVE_OK; E3 full outreach loop on the deployed app → real ZeptoMail email received + structured JSON logs visible in Railway. The whole product works end-to-end in the cloud.
+> Remaining (all optional / deferred): E4 redeploy self-heal check; per-user cost report; egress allowlist tighten; and the design-settled deferrals (verifier/monitor + stage evals + in-turn submit_batch extension, scoped tokens, web-search allowlist, real frontend).
 
 ## Phase 0 — Spike: the PTY ↔ RPC pipe *(do this before writing any real code)*
 

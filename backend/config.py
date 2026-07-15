@@ -57,10 +57,14 @@ def secrets_for_user(user_id: str) -> dict[str, str]:
     return {name: os.environ[name] for name in _SECRET_NAMES if os.environ.get(name)}
 
 
-# --- users / auth (Phase 3) ----------------------------------------------
-# Internal users: bearer token -> user_id. Set via env USER_TOKENS as a
-# comma-separated "token:user_id" list, e.g. USER_TOKENS="tok_rohan:rohan,tok_priya:priya".
-# Real auth (SSO/JWT) is a frontend-phase concern; this is enough for internal use.
+# --- users / auth (Clerk) -------------------------------------------------
+# Identity comes from a Clerk-issued JWT (verified in auth.py against Clerk's JWKS).
+# CLERK_JWT_ISSUER is your Clerk instance's Frontend API URL, e.g.
+#   https://your-app.clerk.accounts.dev  (dev)  or  https://clerk.yourdomain.com (prod).
+# The JWT's `sub` claim is the user_id; a custom `role` claim ("admin") gates admin routes.
+CLERK_JWT_ISSUER = os.environ.get("CLERK_JWT_ISSUER", "").rstrip("/")
+
+
 def cors_origins() -> list[str]:
     """Allowed browser origins for the frontend. Comma-separated CORS_ORIGINS env,
     default '*' (fine for a bearer-token API — no cookies). Set the real frontend
@@ -89,6 +93,8 @@ def assert_secrets_present() -> None:
         raise RuntimeError("missing E2B_API_KEY in environment/.env")
     if not DATABASE_URL:
         raise RuntimeError("missing DATABASE_URL in environment/.env")
+    if not CLERK_JWT_ISSUER:
+        raise RuntimeError("missing CLERK_JWT_ISSUER in environment/.env (your Clerk Frontend API URL)")
     send_missing = [n for n in _SEND_SECRETS if not os.environ.get(n)]
     if send_missing:
         raise RuntimeError(f"missing send credentials in environment/.env: {', '.join(send_missing)}")

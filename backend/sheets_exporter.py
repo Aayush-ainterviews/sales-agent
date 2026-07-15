@@ -8,6 +8,8 @@ view". Optional feature — if GOOGLE_SERVICE_ACCOUNT_JSON is unset, callers get
 error rather than a crash.
 """
 
+import csv
+import io
 import json
 import logging
 
@@ -77,15 +79,33 @@ def _rows_from_json(data) -> list[list]:
     return rows
 
 
-def export_to_sheet(data, title: str) -> str:
-    """Create a spreadsheet from `data`, make it link-viewable, return its URL."""
+def _rows_from_csv(text: str, delimiter: str) -> list[list]:
+    return [list(r) for r in csv.reader(io.StringIO(text), delimiter=delimiter)] or [["(empty)"]]
+
+
+def rows_from_bytes(raw: bytes, path: str) -> list[list]:
+    """Turn a raw output file into spreadsheet rows. Handles JSON (array of lead objects),
+    CSV, and TSV; for an unknown extension, tries JSON then falls back to CSV."""
+    text = raw.decode("utf-8", errors="replace")
+    low = path.lower()
+    if low.endswith(".tsv"):
+        return _rows_from_csv(text, "\t")
+    if low.endswith(".csv"):
+        return _rows_from_csv(text, ",")
+    try:
+        return _rows_from_json(json.loads(text))
+    except Exception:
+        return _rows_from_csv(text, ",")  # not JSON -> treat as CSV
+
+
+def export_rows(rows: list[list], title: str) -> str:
+    """Create a spreadsheet from pre-built rows, make it link-viewable, return its URL."""
     from googleapiclient.discovery import build
 
     creds = _creds()
     sheets = build("sheets", "v4", credentials=creds, cache_discovery=False)
     drive = build("drive", "v3", credentials=creds, cache_discovery=False)
 
-    rows = _rows_from_json(data)
     ss = sheets.spreadsheets().create(body={"properties": {"title": title}}).execute()
     sid = ss["spreadsheetId"]
     sheets.spreadsheets().values().update(

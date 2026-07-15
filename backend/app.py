@@ -181,16 +181,16 @@ class SheetReq(BaseModel):
 
 @app.post("/users/{user_id}/sheet")
 def make_sheet(user_id: str, req: SheetReq, user: str = Depends(require_user)):
-    """Turn one of the caller's output JSON files into a link-viewable Google Sheet.
-    Reads the file from their sandbox, converts the lead array to rows, returns the URL."""
+    """Turn one of the caller's output files (JSON / CSV / TSV) into a link-viewable
+    Google Sheet. Reads it from their sandbox, converts to rows, returns the URL."""
     raw = _read_sandbox_file(user, req.path)
     try:
-        data = json.loads(raw.decode("utf-8"))
+        rows = sheets_exporter.rows_from_bytes(raw, req.path)
     except Exception:
-        raise HTTPException(status_code=400, detail="file is not valid JSON")
+        raise HTTPException(status_code=400, detail="file is not tabular (JSON/CSV/TSV)")
     title = os.path.basename(os.path.normpath(req.path)) or "leads"
     try:
-        url = sheets_exporter.export_to_sheet(data, title)
+        url = sheets_exporter.export_rows(rows, title)
     except sheets_exporter.SheetsNotConfigured:
         raise HTTPException(status_code=501, detail="Google Sheets export is not configured")
     except Exception as e:

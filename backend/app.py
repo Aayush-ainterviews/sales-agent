@@ -135,7 +135,7 @@ def upload_file(user_id: str, file: UploadFile = File(...), user: str = Depends(
     except Exception as e:
         log.warning("upload write failed for %s: %r", user, e)
         raise HTTPException(status_code=500, detail="could not store file in sandbox")
-    event(log, "file_upload", user_id=user, name=name, size=len(data))
+    event(log, "file_upload", user_id=user, filename=name, size=len(data))
     return {"ok": True, "path": f"uploads/{name}", "name": name, "size": len(data)}
 
 

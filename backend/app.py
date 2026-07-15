@@ -10,6 +10,7 @@ endpoints, each scoped to the authenticated user:
   POST /users/{id}/reset      -> kill + reprovision the sandbox
 """
 
+import asyncio
 import json
 import logging
 import threading
@@ -55,11 +56,42 @@ async def messages(user_id: str, request: Request, user: str = Depends(require_u
     if not runner.try_claim(user):
         return JSONResponse({"ok": False, "error": "turn_in_progress"}, status_code=409)
 
-    # Provisioning + streaming happen inside the response generator, iterated in the
-    # threadpool by Starlette; a slow provision delays only this user's own stream.
-    def sse():
-        for ev in runner.run_claimed(user, message):
-            yield f"data: {json.dumps(ev)}\n\n"
+    # Run the turn in a dedicated thread whose finally ALWAYS releases the slot (via
+    # run_claimed), and relay its events through a queue. If the browser goes away
+    # (refresh, tab close, Vercel 60s cut), a suspended sync generator would never run
+    # that finally — the slot would wedge until the stale-heal. So the async relay watches
+    # request.is_disconnected() and, on disconnect, aborts the turn — which ends the daemon
+    # loop, runs the thread's finally, and frees the slot within seconds (immediate heal).
+    loop = asyncio.get_running_loop()
+    q: asyncio.Queue = asyncio.Queue()
+    DONE = object()
+
+    def pump():
+        try:
+            for ev in runner.run_claimed(user, message):
+                loop.call_soon_threadsafe(q.put_nowait, ev)
+        finally:
+            loop.call_soon_threadsafe(q.put_nowait, DONE)
+
+    threading.Thread(target=pump, daemon=True).start()
+
+    async def sse():
+        try:
+            while True:
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break                      # client gone -> finally aborts + frees the slot
+                    continue
+                if ev is DONE:
+                    break
+                yield f"data: {json.dumps(ev)}\n\n"
+        finally:
+            # disconnect / cancel / normal end all land here. On a real end the turn already
+            # released its slot, so this abort is a harmless no-op; on a disconnect it's what
+            # stops the orphaned turn and unwedges the user immediately.
+            runner.abort(user)
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 

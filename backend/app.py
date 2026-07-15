@@ -195,7 +195,11 @@ def make_sheet(user_id: str, req: SheetReq, user: str = Depends(require_user)):
         raise HTTPException(status_code=501, detail="Google Sheets export is not configured")
     except Exception as e:
         log.warning("sheet export failed for %s %s: %r", user, req.path, e)
-        raise HTTPException(status_code=500, detail="sheet export failed")
+        detail = "sheet export failed"
+        if "PERMISSION_DENIED" in str(e) or "has not been used" in str(e) or "SERVICE_DISABLED" in str(e):
+            detail = ("sheet export failed — enable the Sheets API AND Drive API on the "
+                      "service account's own project (the project_id in the key JSON)")
+        raise HTTPException(status_code=500, detail=detail)
     event(log, "sheet_export", user_id=user, path=req.path)
     return {"url": url}
 

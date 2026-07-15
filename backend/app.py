@@ -18,7 +18,7 @@ import os
 import shlex
 import threading
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
@@ -116,6 +116,27 @@ def abort(user_id: str, user: str = Depends(require_user)):
 def reset(user_id: str, user: str = Depends(require_user)):
     runner.reset(user)
     return {"ok": True}
+
+
+@app.post("/users/{user_id}/upload")
+def upload_file(user_id: str, file: UploadFile = File(...), user: str = Depends(require_user)):
+    """Store a user-uploaded file in the caller's sandbox under uploads/ and return its
+    path, so the agent can read it in the next turn. Sync def -> runs in the threadpool,
+    so the blocking sandbox write doesn't stall the event loop."""
+    data = file.file.read()
+    if len(data) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="file too large (max 25MB)")
+    name = os.path.basename(file.filename or "upload").replace("/", "_").strip() or "upload"
+    dest = f"{config.SANDBOX_CWD}/uploads/{name}"
+    try:
+        sbx = runner.sandboxes.get_or_create(user)
+        sbx.commands.run(f"mkdir -p {config.SANDBOX_CWD}/uploads", timeout=30)
+        sbx.files.write(dest, data)
+    except Exception as e:
+        log.warning("upload write failed for %s: %r", user, e)
+        raise HTTPException(status_code=500, detail="could not store file in sandbox")
+    event(log, "file_upload", user_id=user, name=name, size=len(data))
+    return {"ok": True, "path": f"uploads/{name}", "name": name, "size": len(data)}
 
 
 @app.get("/users/{user_id}/file")

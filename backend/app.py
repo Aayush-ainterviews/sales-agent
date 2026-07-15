@@ -21,8 +21,9 @@ import threading
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel
 
-from backend import config, db, logging_setup, send_executor
+from backend import config, db, logging_setup, send_executor, sheets_exporter
 from backend.auth import require_admin, require_user
 from backend.logging_setup import event
 from backend.registry import Registry
@@ -139,11 +140,10 @@ def upload_file(user_id: str, file: UploadFile = File(...), user: str = Depends(
     return {"ok": True, "path": f"uploads/{name}", "name": name, "size": len(data)}
 
 
-@app.get("/users/{user_id}/file")
-def get_file(user_id: str, path: str, user: str = Depends(require_user)):
-    """Stream one output file out of the caller's own sandbox as a download.
-    Path is confined to the sandbox cwd (/home/user) — no traversal, no other users'
-    boxes. Read via base64 over commands.run so binary files survive intact."""
+def _read_sandbox_file(user: str, path: str) -> bytes:
+    """Read one file from the caller's own sandbox, confined to the sandbox cwd
+    (/home/user) — no traversal, no other users' boxes. base64 over commands.run so
+    binary files survive intact. Raises HTTPException on any problem."""
     if not runner.registry.get(user):
         raise HTTPException(status_code=404, detail="no sandbox for user")
     base = config.SANDBOX_CWD
@@ -160,12 +160,44 @@ def get_file(user_id: str, path: str, user: str = Depends(require_user)):
         raise HTTPException(status_code=404, detail="file not found or unreadable")
     if not raw:
         raise HTTPException(status_code=404, detail="file is empty or missing")
-    name = os.path.basename(target) or "download"
+    return raw
+
+
+@app.get("/users/{user_id}/file")
+def get_file(user_id: str, path: str, user: str = Depends(require_user)):
+    """Stream one output file out of the caller's own sandbox as a download."""
+    raw = _read_sandbox_file(user, path)
+    name = os.path.basename(os.path.normpath(path)) or "download"
     return Response(
         content=raw,
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+class SheetReq(BaseModel):
+    path: str
+
+
+@app.post("/users/{user_id}/sheet")
+def make_sheet(user_id: str, req: SheetReq, user: str = Depends(require_user)):
+    """Turn one of the caller's output JSON files into a link-viewable Google Sheet.
+    Reads the file from their sandbox, converts the lead array to rows, returns the URL."""
+    raw = _read_sandbox_file(user, req.path)
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="file is not valid JSON")
+    title = os.path.basename(os.path.normpath(req.path)) or "leads"
+    try:
+        url = sheets_exporter.export_to_sheet(data, title)
+    except sheets_exporter.SheetsNotConfigured:
+        raise HTTPException(status_code=501, detail="Google Sheets export is not configured")
+    except Exception as e:
+        log.warning("sheet export failed for %s %s: %r", user, req.path, e)
+        raise HTTPException(status_code=500, detail="sheet export failed")
+    event(log, "sheet_export", user_id=user, path=req.path)
+    return {"url": url}
 
 
 # --- Draft Batch approval (Phase 4) --------------------------------------

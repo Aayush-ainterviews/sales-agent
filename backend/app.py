@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend import config, deps  # noqa: F401  (deps import = configure logging + assert secrets + build runner)
-from backend.routers import admin, batches, files, turns
+from backend.routers import admin, batches, conversations, files, turns
 
 app = FastAPI(title="sales-ai-agent backend")
 
@@ -29,6 +29,7 @@ def health():
     return {"ok": True}
 
 
+app.include_router(conversations.router)
 app.include_router(turns.router)
 app.include_router(files.router)
 app.include_router(batches.router)

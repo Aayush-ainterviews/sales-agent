@@ -35,7 +35,7 @@ def _valid(b) -> bool:
     return True
 
 
-def collect(sandbox: Sandbox, user_id: str, batches: PendingBatches) -> list[str]:
+def collect(sandbox: Sandbox, user_id: str, conversation_id: str, batches: PendingBatches) -> list[str]:
     """Read every *.json in the sandbox outbox into pending_batches. Returns the ids.
     Best-effort: never let collection break a turn."""
     try:
@@ -55,10 +55,11 @@ def collect(sandbox: Sandbox, user_id: str, batches: PendingBatches) -> list[str
             try:
                 b = json.loads(text)
                 status = "pending" if _valid(b) else "invalid"
-                bid = batches.insert(user_id, b, status)
+                bid = batches.insert(user_id, conversation_id, b, status)
             except json.JSONDecodeError:
                 status = "invalid"
-                bid = batches.insert(user_id, {"_raw": text[:5000], "_error": "invalid JSON"}, status)
+                bid = batches.insert(user_id, conversation_id,
+                                     {"_raw": text[:5000], "_error": "invalid JSON"}, status)
             collected.append(bid)
             sandbox.commands.run(f"rm -f {shlex.quote(path)}", timeout=30)  # don't re-collect
             log.info("collected batch %s (%s) for %s", bid, status, user_id)

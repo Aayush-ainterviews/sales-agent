@@ -57,11 +57,13 @@ def approve_batch(user_id: str, batch_id: str, user: str = Depends(require_user)
         "sent" if result["sent"] > 0 else "failed")
     runner.batches.set_result(batch_id, status, result)
 
-    # hand the outcome back to the agent as a background feedback turn (Phase 4, Step 6)
-    campaign = b.batch_json.get("campaign", "batch") if isinstance(b.batch_json, dict) else "batch"
-    fb = (f"Send result for batch '{campaign}': {result['sent']} sent, {result['failed']} failed. "
-          f"Plan follow-ups if appropriate.")
-    threading.Thread(target=runner.send_feedback, args=(user, fb), daemon=True).start()
+    # hand the outcome back to the agent as a background feedback turn, INTO the conversation
+    # the batch was drafted in (Phase 4, Step 6). Older batches have no conversation_id -> skip.
+    if b.conversation_id:
+        campaign = b.batch_json.get("campaign", "batch") if isinstance(b.batch_json, dict) else "batch"
+        fb = (f"Send result for batch '{campaign}': {result['sent']} sent, {result['failed']} failed. "
+              f"Plan follow-ups if appropriate.")
+        threading.Thread(target=runner.send_feedback, args=(b.conversation_id, fb), daemon=True).start()
 
     event(log, "batch_decision", batch_id=batch_id, user_id=user, action="approve",
           sent=result["sent"], failed=result["failed"], status=status)

@@ -1,12 +1,13 @@
 """
-Turn lifecycle endpoints (Q15): SSE stream for a turn, plus steer/abort/reset.
+Turn lifecycle endpoints (Q15), scoped to a conversation:
 
-  POST /users/{id}/messages -> text/event-stream of turn events (409 if one already runs, Q17)
-  POST /users/{id}/steer    -> inject a mid-turn message (409 if no turn running)
-  POST /users/{id}/abort    -> stop the current turn
-  POST /users/{id}/reset    -> kill + reprovision the sandbox
+  POST /conversations/{cid}/messages -> text/event-stream of turn events (409 if one runs, Q17)
+  POST /conversations/{cid}/steer    -> inject a mid-turn message (409 if no turn running)
+  POST /conversations/{cid}/abort    -> stop the current turn
+  POST /conversations/{cid}/reset    -> kill + reprovision the conversation's sandbox
 
-Thin by design — all lifecycle + concurrency logic lives in TurnRunner.
+Thin by design — all lifecycle + concurrency logic lives in TurnRunner. Ownership is
+enforced by require_conversation (the cid must belong to the token's user).
 """
 
 import asyncio
@@ -16,35 +17,33 @@ import threading
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from backend.auth import require_user
-from backend.deps import runner
+from backend.deps import require_conversation, runner
 
 router = APIRouter()
 
 
-@router.post("/users/{user_id}/messages")
-async def messages(user_id: str, request: Request, user: str = Depends(require_user)):
+@router.post("/conversations/{conversation_id}/messages")
+async def messages(request: Request, cid: str = Depends(require_conversation)):
     body = await request.json()
     message = body.get("message", "")
 
-    # Claim the slot synchronously at admission (fast, no I/O) so a concurrent same-user
+    # Claim the slot synchronously at admission (fast, no I/O) so a concurrent same-conversation
     # /messages gets an immediate, deterministic 409 — independent of provisioning speed.
-    if not runner.try_claim(user):
+    if not runner.try_claim(cid):
         return JSONResponse({"ok": False, "error": "turn_in_progress"}, status_code=409)
 
     # Run the turn in a dedicated thread whose finally ALWAYS releases the slot (via
-    # run_claimed), and relay its events through a queue. If the browser goes away
-    # (refresh, tab close, Vercel 60s cut), a suspended sync generator would never run
-    # that finally — the slot would wedge until the stale-heal. So the async relay watches
-    # request.is_disconnected() and, on disconnect, aborts the turn — which ends the daemon
-    # loop, runs the thread's finally, and frees the slot within seconds (immediate heal).
+    # run_claimed), and relay its events through a queue. If the browser goes away (refresh,
+    # tab close, Vercel 60s cut), a suspended sync generator would never run that finally —
+    # so the async relay watches request.is_disconnected() and, on disconnect, aborts the
+    # turn — ending the daemon loop, running the thread's finally, freeing the slot in seconds.
     loop = asyncio.get_running_loop()
     q: asyncio.Queue = asyncio.Queue()
     DONE = object()
 
     def pump():
         try:
-            for ev in runner.run_claimed(user, message):
+            for ev in runner.run_claimed(cid, message):
                 loop.call_soon_threadsafe(q.put_nowait, ev)
         finally:
             loop.call_soon_threadsafe(q.put_nowait, DONE)
@@ -64,28 +63,25 @@ async def messages(user_id: str, request: Request, user: str = Depends(require_u
                     break
                 yield f"data: {json.dumps(ev)}\n\n"
         finally:
-            # disconnect / cancel / normal end all land here. On a real end the turn already
-            # released its slot, so this abort is a harmless no-op; on a disconnect it's what
-            # stops the orphaned turn and unwedges the user immediately.
-            runner.abort(user)
+            runner.abort(cid)   # no-op on a clean end; stops an orphaned turn on disconnect
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 
 
-@router.post("/users/{user_id}/steer")
-async def steer(user_id: str, request: Request, user: str = Depends(require_user)):
+@router.post("/conversations/{conversation_id}/steer")
+async def steer(request: Request, cid: str = Depends(require_conversation)):
     body = await request.json()
-    ok = runner.steer(user, body.get("message", ""))
+    ok = runner.steer(cid, body.get("message", ""))
     return JSONResponse({"ok": ok}, status_code=200 if ok else 409)
 
 
-@router.post("/users/{user_id}/abort")
-def abort(user_id: str, user: str = Depends(require_user)):
-    ok = runner.abort(user)
+@router.post("/conversations/{conversation_id}/abort")
+def abort(cid: str = Depends(require_conversation)):
+    ok = runner.abort(cid)
     return JSONResponse({"ok": ok}, status_code=200 if ok else 409)
 
 
-@router.post("/users/{user_id}/reset")
-def reset(user_id: str, user: str = Depends(require_user)):
-    runner.reset(user)
+@router.post("/conversations/{conversation_id}/reset")
+def reset(cid: str = Depends(require_conversation)):
+    runner.reset(cid)
     return {"ok": True}

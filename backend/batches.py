@@ -19,6 +19,7 @@ from psycopg_pool import ConnectionPool
 class PendingBatch:
     id: str
     user_id: str
+    conversation_id: str | None
     batch_json: dict
     status: str
     result: dict | None
@@ -29,27 +30,28 @@ class PendingBatches:
     def __init__(self, pool: ConnectionPool):
         self.pool = pool
 
-    def insert(self, user_id: str, batch_json: dict, status: str = "pending") -> str:
-        """Queue a batch; returns its id."""
+    def insert(self, user_id: str, conversation_id: str | None, batch_json: dict,
+               status: str = "pending") -> str:
+        """Queue a batch; returns its id. conversation_id ties it to the chat it came from."""
         with self.pool.connection() as conn:
             row = conn.execute(
-                "INSERT INTO pending_batches (user_id, batch_json, status) "
-                "VALUES (%s, %s, %s) RETURNING id",
-                (user_id, Jsonb(batch_json), status),
+                "INSERT INTO pending_batches (user_id, conversation_id, batch_json, status) "
+                "VALUES (%s, %s, %s, %s) RETURNING id",
+                (user_id, conversation_id, Jsonb(batch_json), status),
             ).fetchone()
         return str(row[0])
 
     def get(self, batch_id: str) -> PendingBatch | None:
         with self.pool.connection() as conn:
             r = conn.execute(
-                "SELECT id, user_id, batch_json, status, result, created_at "
+                "SELECT id, user_id, conversation_id, batch_json, status, result, created_at "
                 "FROM pending_batches WHERE id = %s",
                 (batch_id,),
             ).fetchone()
         return self._row(r) if r else None
 
     def list_by_status(self, status: str, user_id: str | None = None) -> list[PendingBatch]:
-        q = ("SELECT id, user_id, batch_json, status, result, created_at "
+        q = ("SELECT id, user_id, conversation_id, batch_json, status, result, created_at "
              "FROM pending_batches WHERE status = %s")
         params: tuple = (status,)
         if user_id is not None:
@@ -83,6 +85,6 @@ class PendingBatches:
     @staticmethod
     def _row(r) -> PendingBatch:
         return PendingBatch(
-            id=str(r[0]), user_id=r[1], batch_json=r[2], status=r[3],
-            result=r[4], created_at=r[5],
+            id=str(r[0]), user_id=r[1], conversation_id=r[2], batch_json=r[3], status=r[4],
+            result=r[5], created_at=r[6],
         )

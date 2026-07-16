@@ -21,6 +21,7 @@ import threading
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel
 
 from backend import config, db, logging_setup, send_executor
 from backend.auth import require_admin, require_user
@@ -172,6 +173,33 @@ def get_file(user_id: str, path: str, user: str = Depends(require_user)):
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+class WriteReq(BaseModel):
+    path: str
+    content: str
+
+
+@app.put("/users/{user_id}/file")
+def write_file(user_id: str, req: WriteReq, user: str = Depends(require_user)):
+    """Save edited table data back into the caller's sandbox file (path-confined to
+    /home/user). The agent's next turn then reads the updated file."""
+    base = config.SANDBOX_CWD
+    target = req.path if req.path.startswith("/") else f"{base}/{req.path}"
+    target = os.path.normpath(target)
+    if target != base and not target.startswith(base + "/"):
+        raise HTTPException(status_code=400, detail="path outside allowed root")
+    if len(req.content) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="content too large (max 25MB)")
+    try:
+        sbx = runner.sandboxes.get_or_create(user)
+        sbx.commands.run(f"mkdir -p {shlex.quote(os.path.dirname(target))}", timeout=30)
+        sbx.files.write(target, req.content)
+    except Exception as e:
+        log.warning("file write failed for %s %s: %r", user, target, e)
+        raise HTTPException(status_code=500, detail="could not write file")
+    event(log, "file_write", user_id=user, path=req.path, bytes=len(req.content))
+    return {"ok": True, "path": req.path}
 
 
 # --- Draft Batch approval (Phase 4) --------------------------------------

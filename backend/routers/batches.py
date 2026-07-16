@@ -9,9 +9,11 @@ approve (backend sends via ZeptoMail, then hands the result back to the agent) o
 """
 
 import logging
+import os
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from backend import send_executor
 from backend.auth import require_user
@@ -20,6 +22,11 @@ from backend.logging_setup import event
 
 log = logging.getLogger("app")
 router = APIRouter()
+
+
+class ApproveReq(BaseModel):
+    test: bool = True                 # default-safe: send to a test inbox, not real leads
+    test_email: str | None = None     # where the test goes (falls back to SEND_OVERRIDE_TO)
 
 
 def _own_batch(batch_id: str, user: str):
@@ -47,12 +54,21 @@ def get_batch(user_id: str, batch_id: str, user: str = Depends(require_user)):
 
 
 @router.post("/users/{user_id}/batches/{batch_id}/approve")
-def approve_batch(user_id: str, batch_id: str, user: str = Depends(require_user)):
+def approve_batch(user_id: str, batch_id: str, req: ApproveReq, user: str = Depends(require_user)):
     b = _own_batch(batch_id, user)
     if b.status != "pending":
         raise HTTPException(status_code=409, detail=f"batch is '{b.status}', not pending")
+
+    # test mode (default) -> every email goes to one test inbox; actual -> real recipients
+    if req.test:
+        override_to = (req.test_email or "").strip() or os.environ.get("SEND_OVERRIDE_TO", "").strip()
+        if not override_to:
+            raise HTTPException(status_code=400, detail="test mode is on but no test email was provided")
+    else:
+        override_to = None
+
     runner.batches.set_status(batch_id, "approved")
-    result = send_executor.send(b.batch_json)          # Backend sends (creds only here, Q21)
+    result = send_executor.send(b.batch_json, override_to)   # Backend sends (creds only here, Q21)
     status = "sent" if result["sent"] > 0 and result["failed"] == 0 else (
         "sent" if result["sent"] > 0 else "failed")
     runner.batches.set_result(batch_id, status, result)

@@ -24,17 +24,21 @@ def _require(name: str) -> str:
     return v
 
 
-def send(batch_json: dict) -> dict:
+def send(batch_json: dict, override_to: str | None = None) -> dict:
     """Send every lead's drafted email via ZeptoMail. Returns a summary:
     {sent, failed, errors[], override}. Partial failure is tolerated — one bad
-    recipient does not stop the rest."""
+    recipient does not stop the rest.
+
+    override_to: when set (test mode), EVERY email goes to that one address instead of the
+    lead's — so a real lead is never emailed during a test run. The caller (approve endpoint)
+    decides this per-approval; None means send to the real recipients."""
     raw_key = _require("ZEPTOMAIL_API_KEY").strip()
     # accept the key either as the bare token OR as the full "Zoho-enczapikey <token>"
     # header value — normalize so we never double the prefix (a common 401 cause)
     auth = raw_key if raw_key.lower().startswith("zoho-enczapikey") else f"Zoho-enczapikey {raw_key}"
     from_addr = _require("ZEPTOMAIL_FROM_EMAIL")
     from_name = os.environ.get("ZEPTOMAIL_FROM_NAME", "Sales")
-    override = os.environ.get("SEND_OVERRIDE_TO")  # dev safety net (Q23)
+    override = override_to
 
     leads = batch_json.get("leads", [])
     sent, failed, errors = 0, 0, []

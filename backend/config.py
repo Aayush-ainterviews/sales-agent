@@ -64,12 +64,6 @@ def secrets_for_user(user_id: str) -> dict[str, str]:
 # The JWT's `sub` claim is the user_id; a custom `role` claim ("admin") gates admin routes.
 CLERK_JWT_ISSUER = os.environ.get("CLERK_JWT_ISSUER", "").rstrip("/")
 
-# --- Google Sheets export (optional) -------------------------------------
-# Full service-account key JSON (one line) from GCP. Sheets are created by this
-# service account and shared "anyone with the link can view". Backend-only, like the
-# send credentials (Q21) — never reaches the sandbox. Absent -> the export endpoint 501s.
-GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-
 
 def cors_origins() -> list[str]:
     """Allowed browser origins for the frontend. Comma-separated CORS_ORIGINS env,

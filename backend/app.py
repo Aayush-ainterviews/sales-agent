@@ -21,9 +21,8 @@ import threading
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
 
-from backend import config, db, logging_setup, send_executor, sheets_exporter
+from backend import config, db, logging_setup, send_executor
 from backend.auth import require_admin, require_user
 from backend.logging_setup import event
 from backend.registry import Registry
@@ -173,35 +172,6 @@ def get_file(user_id: str, path: str, user: str = Depends(require_user)):
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
-
-
-class SheetReq(BaseModel):
-    path: str
-
-
-@app.post("/users/{user_id}/sheet")
-def make_sheet(user_id: str, req: SheetReq, user: str = Depends(require_user)):
-    """Turn one of the caller's output files (JSON / CSV / TSV) into a link-viewable
-    Google Sheet. Reads it from their sandbox, converts to rows, returns the URL."""
-    raw = _read_sandbox_file(user, req.path)
-    try:
-        rows = sheets_exporter.rows_from_bytes(raw, req.path)
-    except Exception:
-        raise HTTPException(status_code=400, detail="file is not tabular (JSON/CSV/TSV)")
-    title = os.path.basename(os.path.normpath(req.path)) or "leads"
-    try:
-        url = sheets_exporter.export_rows(rows, title)
-    except sheets_exporter.SheetsNotConfigured:
-        raise HTTPException(status_code=501, detail="Google Sheets export is not configured")
-    except Exception as e:
-        log.warning("sheet export failed for %s %s: %r", user, req.path, e)
-        detail = "sheet export failed"
-        if "PERMISSION_DENIED" in str(e) or "has not been used" in str(e) or "SERVICE_DISABLED" in str(e):
-            detail = ("sheet export failed — enable the Sheets API AND Drive API on the "
-                      "service account's own project (the project_id in the key JSON)")
-        raise HTTPException(status_code=500, detail=detail)
-    event(log, "sheet_export", user_id=user, path=req.path)
-    return {"url": url}
 
 
 # --- Draft Batch approval (Phase 4) --------------------------------------

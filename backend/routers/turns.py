@@ -33,10 +33,12 @@ async def messages(request: Request, cid: str = Depends(require_conversation)):
         return JSONResponse({"ok": False, "error": "turn_in_progress"}, status_code=409)
 
     # Run the turn in a dedicated thread whose finally ALWAYS releases the slot (via
-    # run_claimed), and relay its events through a queue. If the browser goes away (refresh,
-    # tab close, Vercel 60s cut), a suspended sync generator would never run that finally —
-    # so the async relay watches request.is_disconnected() and, on disconnect, aborts the
-    # turn — ending the daemon loop, running the thread's finally, freeing the slot in seconds.
+    # run_claimed) and completes the turn (saves log + batches) regardless of the client, then
+    # relay its events through a queue. If the browser goes away (refresh, tab close), we do
+    # NOT abort — the turn keeps running server-side so the client can reconnect and recover
+    # it (GET /status + reload history). The pump thread frees the slot on completion, the
+    # watchdog bounds a hung turn, and the stale-claim self-heal is the final backstop — so a
+    # disconnect can never wedge the slot. (Explicit Stop still aborts via POST /abort.)
     loop = asyncio.get_running_loop()
     q: asyncio.Queue = asyncio.Queue()
     DONE = object()
@@ -51,19 +53,16 @@ async def messages(request: Request, cid: str = Depends(require_conversation)):
     threading.Thread(target=pump, daemon=True).start()
 
     async def sse():
-        try:
-            while True:
-                try:
-                    ev = await asyncio.wait_for(q.get(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    if await request.is_disconnected():
-                        break                      # client gone -> finally aborts + frees the slot
-                    continue
-                if ev is DONE:
-                    break
-                yield f"data: {json.dumps(ev)}\n\n"
-        finally:
-            runner.abort(cid)   # no-op on a clean end; stops an orphaned turn on disconnect
+        while True:
+            try:
+                ev = await asyncio.wait_for(q.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                if await request.is_disconnected():
+                    break   # stop relaying to a gone client; the turn keeps running server-side
+                continue
+            if ev is DONE:
+                break
+            yield f"data: {json.dumps(ev)}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 

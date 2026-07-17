@@ -42,6 +42,28 @@ verified email + LinkedIn for each. First build the enrichment units + query
 (see "Building the enrichment input + query" below), then run the single
 table-creation flow.
 
+### One job = one agent = one workspace = one table (never split)
+
+A single enrichment job uses **exactly ONE Origami agent, in ONE workspace, with
+ONE table** — every unit of the job goes into that one table in that one run.
+
+- **Never fire a second `POST /api/v2/agents` for the same job.** Each unbound
+  `POST /api/v2/agents` spins up a NEW workspace + NEW table (see Workspace
+  alignment) — so a "backup" or "second batch" call fragments one job across two
+  workspaces. That is a bug, not a strategy.
+- **No top-up runs.** If some rows enrich empty / low-confidence, that is the
+  result for those rows — do NOT go collect more companies and enrich them in a
+  separate run to "make up the count". Reaching the count is the collection
+  stage's job (with a buffer; see the apify skill), done BEFORE enrichment. You
+  enrich the full set **once**.
+- **Gap-fill, if ever needed, is a follow-up run on the SAME agent** — reuse the
+  captured table id with `focusTableIds:["<table_id>"]` (same agent → same
+  workspace, no mismatch). Never a fresh agent, never a new workspace.
+
+If the delivered complete-lead count still falls short after the single run,
+deliver what completed and report honestly — never open a second workspace to top
+it up.
+
 ### The flow — one table-creation run
 
 One agent builds AND enriches in its **own** workspace, in a single run. No

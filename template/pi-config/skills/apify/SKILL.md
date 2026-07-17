@@ -235,6 +235,17 @@ unit, after filtering to the target — not by raw actor records.
 This loop runs at the Apify collection stage ONLY. Reach the target here BEFORE
 any enrichment or output — never enrich / output a partial set and top up later.
 
+**Collection target includes an enrichment-loss buffer.** When the deliverable is
+the collected unit itself, the collection target is just N. But for a **lead-gen
+job that will be enriched downstream** (the usual case), enrichment will NOT find
+a verified contact for every collected company — so aim higher: the collection
+target = **N + a buffer** (≈ 1.5 × N, a few extra minimum). Collect that buffered
+count of on-target companies here, in this loop, so that after enrichment losses
+you can still deliver N complete leads from ONE enrichment run — never a second
+enrichment run to top up (see the origami skill's "one job = one workspace"). The
+buffer is extra **on-target** results only; it never relaxes what counts as a
+match.
+
 ### Initial run
 
 - **ICP scope (always, from GOAL.md).** Tighten the input to retail-store hiring:
@@ -253,9 +264,10 @@ any enrichment or output — never enrich / output a partial set and top up late
 
 1. Run the actor → fetch raw → filter to the confirmed target → dedupe → count by
    the confirmed unit.
-2. If count ≥ target → stop; take N.
-3. If count < target → apply the NEXT ladder lever (ONE change), log what you
-   changed and the new count, and re-run:
+2. If count ≥ the collection target (N, or N + buffer for a to-be-enriched
+   lead-gen job) → stop; take that set.
+3. If count < the collection target → apply the NEXT ladder lever (ONE change),
+   log what you changed and the new count, and re-run:
    - L1 — widen `timeRange` toward `6m` (if not already there). `descriptionSearch`
      / `descriptionExclusionSearch` are NOT supported with `6m`, so drop them
      before switching and log it.
@@ -268,7 +280,10 @@ any enrichment or output — never enrich / output a partial set and top up late
 4. Stop when: the target is met, OR the full applicable ladder has been tried once
    (minimum effort), OR you reach 4 collection attempts total (the initial run
    plus up to 3 re-runs).
-5. Take the N on-target results (or fewer if exhausted) and record the exact count.
+5. Take the collected on-target set — the buffered count for a to-be-enriched
+   job, or fewer if exhausted — and record the exact count. This whole set goes to
+   the single enrichment run; the final N complete leads are selected AFTER
+   enrichment (deliver fewer + report if enrichment still comes up short).
 
 Widening `timeRange` (e.g. `7d`→`6m`) only broadens the source window; it does NOT
 relax what counts as a match. Never relax the match-definition or non-target

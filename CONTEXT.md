@@ -4,6 +4,23 @@ A multi-user sales outreach agent: each user gets an isolated pi agent running i
 
 ## Language
 
+### Product & ICP
+
+**ICP (Ideal Customer Profile)**:
+The standing, always-on definition of what this product targets: companies hiring for their **physical retail stores**. Every agent run is auto-scoped to it — the user never restates it, and a request may narrow *within* the ICP, never outside. Encoded in [GOAL.md](GOAL.md) "Product & who we target"; enforced as a hard filter at both the Apify search stage and the filter stage.
+_Avoid_: "relevance" as a per-query flag, "the user's criteria"
+
+**Lead**:
+A relevant company (runs physical retail stores + shows a store-hiring signal) **plus** the retail-store-hiring decision-maker to reach it, with a verified email. A bare company or job list is not a finished Lead.
+
+**Retail-store hiring signal**:
+A store-level, customer-facing retail opening — the kind a physical store hires for. NOT corporate-HQ, tech/engineering, warehouse-only, or unrelated roles. This is the "Job" leg of the ICP.
+_Avoid_: any job, any opening
+
+**Retail-hiring decision-maker**:
+The person who owns or influences a company's store hiring — the Sales Head, Store/Retail Head, or Recruiter/TA Head kind (and equivalents: regional/area retail HR, VP Retail Ops). The Origami enrichment target. Must **currently hold** that title **at that same company** — a past/former role, or the right title at a different company, does not count. NOT a random employee, a tech recruiter, or an unrelated executive.
+_Avoid_: any contact, any recruiter, hiring manager (too generic), former/ex- title-holders
+
 ### Orchestration
 
 **Backend**:

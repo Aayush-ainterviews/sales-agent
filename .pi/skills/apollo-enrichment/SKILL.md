@@ -43,7 +43,7 @@ firmographics (industry, size, domain, …).
 Do NOT use Apollo:
 - as the FIRST enrichment source — run it only after Origami, only for what is
   still missing (it is paid, per-field).
-- to collect job postings (Apify) or to send email (ZeptoMail).
+- to collect job postings (Apify) or to draft email (ZeptoMail).
 - to re-fetch a field already present and verified (never overwrite a verified
   value with a guessed one — see Merge).
 
@@ -177,7 +177,7 @@ so the merge stays traceable.
 
 ## Boundaries
 
-- Enrichment only — do not collect job postings (Apify) or send email (ZeptoMail).
+- Enrichment only — do not collect job postings (Apify) or draft email (ZeptoMail).
 - Last rung: run after Origami, only for missing fields.
 - Public professional data only; respect DNC / GDPR (personal-email reveal is
   blocked in GDPR regions and may return nothing).

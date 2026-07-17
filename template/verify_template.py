@@ -2,7 +2,7 @@
 Phase 1 exit test (docs/implementation-plan.md):
 boot a sandbox from 'sales-agent-v1' and prove it is ready with ZERO install:
   1. boot time fast, node 22 + pi present
-  2. pi-config landed (settings, AGENTS.md, exactly 3 skills, NO zeptomail — Q9)
+  2. pi-config landed (settings, AGENTS.md, 5 skills incl. zeptomail-email [DRAFT-only])
   3. daemon starts over PTY, probe answers, one real turn completes
 Uses lib/daemon_pipe.py — the spike-proven plumbing the backend's DaemonClient grows from.
 
@@ -51,9 +51,9 @@ def main() -> int:
         ).stdout
         check("settings.json", "settings.json" in ls)
         check("AGENTS.md", "AGENTS.md" in ls)
-        for skill in ("apify", "apollo-enrichment", "origami-enrichment", "submit-batch"):
+        for skill in ("apify", "apollo-enrichment", "origami-enrichment",
+                      "zeptomail-email", "submit-batch"):
             check(f"skill: {skill}", skill in ls)
-        check("NO zeptomail skill (Q9)", "zeptomail" not in ls)
         check("outbox dir exists (Phase 4)", "/home/user/outbox" in ls)
         check("GOAL.md at cwd", len(ls.strip()) > 200)
 

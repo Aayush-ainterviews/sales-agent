@@ -4,11 +4,15 @@ Phase 1: build the real sandbox template on E2B.
 What gets baked in (and why — docs/architecture-decisions.md):
 - node 22 (spike finding: base image's v20.9 is too old for pi)
 - pi, version-pinned (what the spike validated)
-- pi-config/ -> /home/user/.pi/agent/   (settings, AGENTS.md, 3 skills)
+- pi-config/ -> /home/user/.pi/agent/   (settings, AGENTS.md, 5 skills:
+  apify, apollo-enrichment, origami-enrichment, zeptomail-email [DRAFT-only], submit-batch)
 - workspace/GOAL.md -> /home/user/GOAL.md  (AGENTS.md tells the agent to read it)
 
+Note: zeptomail-email is DRAFT-only (never sends) — it composes the outreach, then
+submit-batch queues it to the outbox for human approval; the backend does the actual send.
+
 What is deliberately ABSENT:
-- zeptomail-email skill — Q9: the agent has no send capability, ever
+- any actual send capability in the sandbox — Q9: the agent never sends; it only drafts + queues
 - any secret / env value — Q11: secrets enter only at daemon start via pty.create(envs=...)
   (env names the skills expect: GEMINI_API_KEY, ORIGAMI_API_KEY, APOLLO_API_KEY, APIFY_TOKEN)
 - start command — Q8: the backend owns the daemon lifecycle

@@ -85,3 +85,10 @@ def abort(cid: str = Depends(require_conversation)):
 def reset(cid: str = Depends(require_conversation)):
     runner.reset(cid)
     return {"ok": True}
+
+
+@router.get("/conversations/{conversation_id}/status")
+def status(cid: str = Depends(require_conversation)):
+    """Is a turn currently running for this conversation? Lets the client recover when a
+    long turn's SSE stream is cut mid-way (it polls this, then reloads the result)."""
+    return {"busy": cid in runner.busy_snapshot()}

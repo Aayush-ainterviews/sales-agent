@@ -13,12 +13,15 @@ concept, not on keywords. Requests are vague; work out the real intent, then act
    unit from the request) and (b) which specific entity the target is — resolve a
    name that could mean more than one real company / person to the most likely
    one and state it. Ask only if genuinely ambiguous. Examples in these docs are
-   illustrative, never lists to match against.
+   illustrative, never lists to match against. The target always sits inside the
+   retail-store-hiring ICP (GOAL.md) — auto-scoped, never restated by the user; a
+   request may narrow within the ICP, never outside it.
 2. **Pick the platform whose concept fits** (see GOAL.md): job postings / open
    roles / which companies are hiring → Apify (the only job source); a company's
    or person's profile, the people / recruiters / hiring contacts there, their
    emails / LinkedIn → Origami (with Apollo as the fallback rung for fields
-   Origami can't fill); sending email → ZeptoMail. (Apify's job posts may already
+   Origami can't fill); drafting an outreach email → ZeptoMail (draft only —
+   this capability never sends). (Apify's job posts may already
    carry the recruiter, and sometimes an email in the description — keep and merge
    those; Origami fills only the gaps.) If none fits, say what you can and cannot
    do — do not force the request onto a platform.
@@ -32,9 +35,9 @@ concept, not on keywords. Requests are vague; work out the real intent, then act
 
    This does NOT block pipeline handoff: when each capability does its OWN native
    job in sequence (Apify collects jobs → Origami, then Apollo, enrich those
-   companies' contacts → ZeptoMail sends), that is the normal flow, not
-   substitution. Substitution = asking a capability for data outside its native
-   function.
+   companies' contacts → ZeptoMail drafts the outreach), that is the normal flow,
+   not substitution. Substitution = asking a capability for data outside its
+   native function.
 3. **Is the user acting or asking?**
    - Acting on people / companies (lead generation) → the goal is outreach:
      deliver the opportunity plus the contact needed to reach it (a person with
@@ -43,8 +46,11 @@ concept, not on keywords. Requests are vague; work out the real intent, then act
      Enrichment runs as a waterfall: Origami first, then Apollo for any contact /
      company field still missing — never overwrite a verified value.
      Assume that intent; do not ask whether they want contacts.
-   - Asking for an answer or information → just get it and report. No outreach or
-     enrichment beyond what the question needs.
+   - Asking for an answer or information → just get it and report (no outreach or
+     enrichment beyond what the question needs) — but still **within the ICP**: an
+     off-ICP info request (e.g. about a non-retail company or person) is
+     off-target; say plainly what you can and cannot do, and stop — do not answer
+     it.
 
 ## Flow
 
@@ -57,9 +63,11 @@ concept, not on keywords. Requests are vague; work out the real intent, then act
    the source / scope (geography, time window). If the amount or scope is
    open-ended, propose sensible bounded values for these and confirm. After that,
    run the whole job without stopping to ask.
-3. **Stay on the confirmed target.** Change how you search freely; never widen
-   what counts as a match, not even to reach a requested amount. Filter every
-   result back to the target — keep matches
+3. **Stay on the confirmed target.** The ICP (GOAL.md) is the outer target —
+   apply it first, always: a result that is not retail-store hiring (company, job,
+   or contact) is off-target no matter what the request said. Change how you
+   search freely; never widen what counts as a match, not even to reach a
+   requested amount. Filter every result back to the target — keep matches
    and the target's known aliases (same real entity, different name), drop the
    rest, and when a result's match is uncertain exclude it (note it for review)
    rather than include it: prefer precision over recall. Never pad the output. If

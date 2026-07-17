@@ -202,9 +202,11 @@ verification.
 5. Poll until terminal status.
 6. Fetch dataset items.
 7. Save raw dataset to `runs/<runId>/raw/apify-dataset.json`.
-8. Check each result against the confirmed plan: keep results that match the
-   confirmed target, drop clearly different companies / people / scopes, and ask
-   if unsure.
+8. Apply the ICP first (GOAL.md): drop anything that is not retail-store hiring —
+   non-retail / online-only companies, agencies, and non-store-level roles
+   (corporate-HQ, tech / engineering, warehouse-only). Then check the survivors
+   against the confirmed plan: keep results that match the confirmed target, drop
+   clearly different companies / people / scopes, and ask if unsure.
 9. Save rejected or uncertain records with reasons under `runs/<runId>/rejected/`
    or `runs/<runId>/review/`.
 10. Normalize only the results that matched the confirmed target into
@@ -235,6 +237,11 @@ any enrichment or output — never enrich / output a partial set and top up late
 
 ### Initial run
 
+- **ICP scope (always, from GOAL.md).** Tighten the input to retail-store hiring:
+  `titleSearch` for the store-level retail-role concept, `industryFilter` for
+  retail, and `removeAgency: true`. This holds even when the request names only a
+  company — the retail-store scope is the standing product scope, not an invented
+  role.
 - `limit` = `max(target × 3, 50)`; for a high-noise search (broad / common role,
   or a large company with many unrelated postings) use `target × 5`. Cap by any
   agreed max-raw / cost bound; hard ceiling 5000.
@@ -252,9 +259,10 @@ any enrichment or output — never enrich / output a partial set and top up late
    - L1 — widen `timeRange` toward `6m` (if not already there). `descriptionSearch`
      / `descriptionExclusionSearch` are NOT supported with `6m`, so drop them
      before switching and log it.
-   - L2 — add on-target `titleSearch` synonyms (same role concept) — ONLY if the
-     confirmed plan has a role / title. If the target is a company only, SKIP
-     this lever; never invent role filters.
+   - L2 — add on-target `titleSearch` synonyms (same role concept). The ICP's
+     store-level retail-role scope always applies here — even for a company-only
+     request, keep that scope (it is the standing product scope, not an invented
+     role). Do not add roles beyond the ICP plus the confirmed plan.
    - L3 — raise `limit`.
    After each re-run, re-filter to the SAME target.
 4. Stop when: the target is met, OR the full applicable ladder has been tried once
@@ -290,5 +298,5 @@ email is missing (the default for outreach), hand off to Origami. Downstream:
 
 - Origami -> find / enrich the relevant person and their email for each lead
   (required for lead-gen; Apify cannot supply emails)
-- ZeptoMail -> email drafting or sending after explicit approval
+- ZeptoMail -> ICP-relevant outreach email drafting only (never sends)
 - local scripts -> normalization, dedupe, classification, scoring, joins

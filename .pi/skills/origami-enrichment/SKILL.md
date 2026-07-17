@@ -8,9 +8,14 @@ description: Use this skill when the task needs to find or enrich a company or a
 Origami researches and enriches **companies and people** and stores the result in
 structured **tables**. For this sales agent, its main job is: take the
 companies / leads collected upstream (e.g. from Apify) and, for each, find the
-relevant hiring contact / decision-maker with a **verified work email and
-LinkedIn** — the things Apify cannot supply. This is Origami's own research, not
-the agent browsing the web.
+**retail-store-hiring decision-maker** (the Sales Head, Store / Retail Head, or
+Recruiter / TA Head kind — the person who owns or influences store hiring; see the
+ICP in GOAL.md) with a **verified work email and LinkedIn** — the things Apify
+cannot supply. This is Origami's own research, not the agent browsing the web.
+Never settle for a random employee or an unrelated recruiter; the target is that
+retail-hiring decision-maker, and the email is the critical field. The person must
+**currently hold** that title **at that same company** — past / former roles, or
+the right title at a different company, do not count.
 
 ## Setup
 
@@ -34,48 +39,39 @@ table.
 
 You have specific companies / leads (e.g. from Apify) and need a contact +
 verified email + LinkedIn for each. First build the enrichment units + query
-(see "Building the enrichment input + query" below), then pick a path — **prefer
-Path A**.
+(see "Building the enrichment input + query" below), then run the single
+table-creation flow.
 
-### Path A — prompt-based (default; small–medium lists)
+### The flow — one table-creation run
 
 One agent builds AND enriches in its **own** workspace, in a single run. No
-upload, no `focusTableIds` — so the workspace-mismatch trap (below) cannot
-happen.
+separate upload, no `focusTableIds` on this first run — so the workspace-mismatch
+trap (below) cannot happen.
 
-1. `POST /api/v2/agents` with one prompt carrying **one line per unit, each in its
-   own mode** (built per "Building the enrichment input + query"), e.g.:
-   - *"Find the verified work email and LinkedIn URL for Priya Sharma (Talent
-     Acquisition) at Acme (domain acme.com)."* — Mode A
-   - *"At Zolostays (domain zolostays.com), find the most relevant hiring contact
-     for a Trainer role — recruiter, hiring manager, or decision-maker — then
-     their verified work email and LinkedIn URL."* — Mode B
+**Do NOT send loose search lines.** A bare *"find X's email"* prompt makes Origami
+answer in chat and **never materialize a table** — then there are no cells to poll
+and no rows to read back (this is the "run looks done but nothing came out" bug).
+Instead send ONE **table-creation prompt** (built per Step 5A) that tells Origami
+to create a single structured table — one row per provided unit, fixed input
+columns left untouched, missing enrichment columns filled.
 
-   Returns `202 { agent, run, workspace }`.
-2. Poll the run → wait for cells → read rows (below) → merge back into your leads.
+1. `POST /api/v2/agents` with the Step 5A table-creation prompt. Returns
+   `202 { agent, run, workspace }`.
+2. Poll the run → **wait for cells** (`cells.running === 0`, see below) → read the
+   table rows → merge back into your leads.
+3. **Capture the created table id** from `run.response.tables[].id` — you need it
+   for any follow-up enrich pass (Step 5A operational note).
 
-### Path B — table-then-enrich (large lists only)
-
-Put the companies in a table first, then enrich. The table and the agent MUST
-share ONE workspace (see Workspace alignment).
-
-1. `POST /api/v2/workspaces` → `workspaceId`.
-2. Put the companies in THAT workspace: upload CSV
-   (`POST /api/v2/workspaces/:workspaceId/uploads`, `mode:"table"`) or upsert
-   (`POST /api/v2/tables/:tableId/rows/upsert`, `matchColumns` = input column
-   slugs from `GET /api/v2/tables/:tableId/columns`, max 100/req) → `tableId`.
-3. **Verify the table is ready BEFORE enriching** — a freshly written table can
-   lag a moment, and enriching an empty / half-written table wastes the run. The
-   readiness signal depends on how you wrote it:
-   - **Upserted rows** → poll `GET /api/v2/batches/:batchId` until
-     `status:"complete"`, then confirm the rows.
-   - **Uploaded a CSV (new table)** → no batch handle here, so confirm directly:
-     poll `GET /api/v2/tables/:tableId/rows` until the expected row count appears,
-     and `GET /api/v2/tables/:tableId/columns` shows the input columns.
-   Do not start the enrich run until the rows are actually in.
-4. Enrich with an agent **bound to that same workspace** plus
-   `focusTableIds:[tableId]` and the enrich prompt.
-5. Poll → wait for cells → read rows → merge back.
+**Very-large lists (escape hatch).** One prompt only holds so many unit blocks
+reliably. If the list is too big for one prompt (~100+ units), do NOT switch
+tools — **chunk** the units into batches of ~50 and run one table-creation prompt
+per chunk (same shape), then merge the tables' rows back. Only if a list is
+genuinely huge AND you already hold the rows as structured data, you may instead
+pre-`upsert` them into a table in ONE workspace
+(`POST /api/v2/tables/:tableId/rows/upsert`, `matchColumns` = input slugs, max
+100/req; verify rows landed before enriching) and enrich an agent bound to that
+same workspace with `focusTableIds:[tableId]`. That reintroduces the
+workspace-alignment trap (below), so use it only when the scale truly demands it.
 
 ## Building the enrichment input + query
 
@@ -97,9 +93,11 @@ Enrich each unit **once**. A company's 5 posts = **1 unit**, not 5× credits.
 
 ### Step 2 — Pick the MODE per unit
 - **Mode A — verify a known person:** the unit has a real recruiter name.
+  (`search_mode = known_person` in the Step 5A table.)
 - **Mode B — find a person:** no recruiter, OR the name is generic / a team
   ("Talent Acquisition Team", "HR Department", "Careers") → not a person →
-  **guard → Mode B**.
+  **guard → Mode B**. (`search_mode = find_decision_maker` in the Step 5A table —
+  the target is the retail-store-hiring decision-maker, per the ICP.)
 
 ### Step 3 — Seed the input (identifiers only; omit if absent, never fabricate)
 
@@ -127,34 +125,133 @@ the prompt ≠ discarding the data — the JD's email still reaches the output v
 merge. JD / PII leak into the prompt stays structurally impossible, while any
 contact the JD carried is kept.
 
-### Step 4 — Build the query from the MODE
-- **Mode A:** `Find the verified work email and LinkedIn URL for {recruiter_name}
-  ({recruiter_title}) at {organization} (domain {org_linkedin_website}).`
-- **Mode B:** `At {organization} (domain {org_linkedin_website}), find the most
-  relevant hiring contact for a {title} role — recruiter, hiring manager, or
-  decision-maker — then their verified work email and LinkedIn URL.`
+### Step 4 — Write each unit's per-row Task line (from its MODE)
+This is NOT a standalone query you send — it is the **`Task` line for that unit's
+row block** inside the Step 5A table-creation prompt. Write it from the unit's mode:
+- **Mode A** (`known_person`): `Verify {recruiter_name} ({recruiter_title}) at
+  {organization} (domain {org_linkedin_website}) and return their verified work
+  email and LinkedIn URL.`
+- **Mode B** (`find_decision_maker`): `At {organization} (domain
+  {org_linkedin_website}), find the person who CURRENTLY holds the
+  retail-store-hiring decision-maker role there — the Sales Head, Store / Retail
+  Head, or Recruiter / TA Head who owns store hiring for a {title} role (or the
+  closest equivalent), in their present position at this company, not a past role —
+  then their verified work email and LinkedIn URL.`
 
-Every query is assembled from 3 parts, each with a fixed source: **SET** (which
-companies ← Step 3 identifiers, inline) + **TARGET PERSON** (who ← Mode A known
-name / Mode B role descriptor) + **FIELDS** (what ← the GAP = required outputs
-minus what Apify already gave, i.e. only verified email + LinkedIn). Prefer Mode A
-— cheaper and accurate; use Mode B only when there is no known person.
+Each Task line has 3 fixed parts: **SET** (which company ← Step 3 identifiers,
+inline) + **TARGET PERSON** (who ← Mode A known name / Mode B the current
+retail-store-hiring decision-maker for the role, per the ICP — never a random
+employee) + **FIELDS** (what ← the GAP = required outputs minus what Apify already
+gave, i.e. only verified email + LinkedIn). Prefer Mode A — cheaper and accurate;
+use Mode B only when there is no known person.
 
-### Step 5 — Wire into the path
-- **Path A** (≤ ~10–15 units): one prompt, one line per unit carrying its own mode
-  (named person for A; company + role for B).
-- **Path B** (large): upsert units as table rows with input slugs (`company`,
-  `domain`, `company_linkedin`, `recruiter_name`, `recruiter_title`, `role`), plus
-  ONE generic per-row branch prompt: *"For each row: if a contact name is present,
-  find THAT person's verified work email and LinkedIn URL; if no contact name,
-  first find the most relevant hiring contact for the given role, then their email
-  and LinkedIn."* The branch lives in the row data — the prompt stays constant.
+### Step 5 — Wire into the table-creation prompt
+Feed every unit into ONE Step 5A table-creation prompt — one row block per unit,
+each carrying its own `search_mode` (known person → `known_person`; company + role
+→ `find_decision_maker`). For a list too big for one prompt, chunk into ~50-unit
+batches (escape hatch above); the row-block shape stays identical. For the rare
+pre-upsert escape hatch, the input column slugs are `company`, `domain`,
+`company_linkedin`, `recruiter_name`, `recruiter_title`, `role`.
 
-**Form rules (both paths):** 1–4 concise sentences, < ~150 words; concrete with
-identifiers inline; **"for EACH of these / enrich-all", never "find N"** (the list
-is fixed from Apify — "find N" makes Origami discover new companies); ask only for
-the GAP fields; no "return as JSON"; no cost limit in the prompt (bound scope by
-the list + role instead).
+**Form rules (the table-creation prompt):** concrete with identifiers inline;
+**"for EACH of these / enrich-all", never "find N"** (the list is fixed from
+Apify — "find N" makes Origami discover new companies); ask only for the GAP
+fields; no "return as JSON"; no cost limit in the prompt (bound scope by the list
++ role instead). The prompt is a structured, multi-part block (table intent,
+columns, per-mode behavior, row blocks) — not a one-liner; its length simply
+follows from the row count.
+
+### Step 5A — the table-creation prompt (build the table, don't just chat)
+
+The enrichment prompt is a **table-creation brief**, not loose search lines. It
+must make Origami create one structured table from the fixed input units, then
+fill the missing enrichment columns — every unit stays a row so the result has
+cells to poll and rows to read back. Everything the ICP (GOAL.md) targets:
+retail-store-hiring decision-makers with a verified email.
+
+The prompt must include, in order:
+
+1. **Table intent** — create ONE new table named `{table_name}`; exactly one row
+   per provided unit; do NOT add unrelated companies or extra rows, and do NOT go
+   discover new companies (the list is fixed).
+2. **Fixed-input rule** — the company / domain / person / role fields provided are
+   fixed inputs; do not overwrite or change them.
+3. **Column schema** — tell Origami to create these columns:
+   - *Input columns* (I fill; keep untouched): `company_name`, `domain`,
+     `search_mode`, `provided_person_name`, `provided_person_title`, `target_role`.
+   - *Enrichment columns* (Origami fills): `decision_maker_name`,
+     `decision_maker_title`, `verified_work_email`, `email_verification_status`,
+     `linkedin_url`, `confidence`, `source_provenance`, `notes`.
+4. **Per-mode behavior** (keyed by the row's `search_mode`, ICP-scoped):
+   - `known_person` → verify THAT exact person and find their verified work email
+     + LinkedIn URL.
+   - `find_decision_maker` → find the **retail-store-hiring decision-maker** for
+     `target_role` — the person who owns physical-store hiring (Sales Head, Store /
+     Retail Head, Recruiter / TA Head, HR Head, or the closest equivalent), never a
+     random employee or an unrelated / tech recruiter — then their verified work
+     email + LinkedIn URL. The person must **currently hold** that title **at this
+     same company**; past / former roles, or the title at another company, do not
+     count.
+5. **Safety** — do not invent emails or LinkedIn URLs; if a verified email can't be
+   found, leave `verified_work_email` empty/null and say why in `notes`; keep
+   source / provenance for every found detail; mark `email_verification_status`
+   honestly (verified vs unverified).
+6. **Rows** — append each enrichment unit as a structured row block: Company,
+   Domain, Search mode, Provided person + title (if `known_person`), Target role
+   (if `find_decision_maker`), Task.
+
+`{table_name}` = a short run-specific name (e.g. the target + run id). Confirm the
+real column slugs with `GET /api/v2/tables/:id/columns` after creation before
+reading cells — display names ≠ slugs.
+
+**Assembled example** (two units — one per mode; follow this exact shape):
+
+```
+Create ONE new Origami table named "retail-leads-<runId>".
+Use exactly one row per unit I list below. Do NOT add any other companies or
+extra rows, and do NOT discover new companies — the list is fixed.
+
+The values I give (company_name, domain, search_mode, provided_person_name,
+provided_person_title, target_role) are FIXED inputs — do not overwrite or change them.
+
+Create the table with these columns:
+- Input columns (I fill; leave untouched): company_name, domain, search_mode,
+  provided_person_name, provided_person_title, target_role
+- Enrichment columns (you fill): decision_maker_name, decision_maker_title,
+  verified_work_email, email_verification_status, linkedin_url, confidence,
+  source_provenance, notes
+
+For EACH row, by its search_mode:
+- known_person → verify THAT exact person (provided_person_name/_title) at that
+  company; return their verified work email + LinkedIn URL.
+- find_decision_maker → find the person who CURRENTLY holds the retail-store-hiring
+  decision-maker role for target_role at that same company — Sales Head,
+  Store/Retail Head, Recruiter/TA Head, HR Head, or closest equivalent who owns
+  physical-store hiring (present position, not a past role, not a different
+  company; never a random employee or a tech recruiter) — then their verified work
+  email + LinkedIn URL.
+
+Do not invent emails or LinkedIn URLs. If a verified email can't be found, leave
+verified_work_email empty and say why in notes. Keep source/provenance for every
+found detail; mark email_verification_status honestly.
+
+Rows:
+1) Company: Acme Retail | Domain: acme.com | Search mode: known_person |
+   Provided person: Priya Sharma (Talent Acquisition) | Task: verify this person, get email + LinkedIn.
+2) Company: Zolostays | Domain: zolostays.com | Search mode: find_decision_maker |
+   Target role: Store Manager | Task: find the current retail-store-hiring decision-maker, get email + LinkedIn.
+```
+
+**Operational note — table id & follow-ups:**
+
+```
+After the run completes, get the created table id from
+`run.response.tables[].id`.
+Do NOT use `focusTableIds` on the first run — the table does not exist yet.
+For any follow-up run on that created table, call `POST /api/v2/agents/:agentId/runs`
+with `focusTableIds: ["<created_table_id>"]` (same agent, so same workspace — no
+WORKSPACE_TABLE_MISMATCH).
+```
 
 ### Step 6 — Reconcile on merge-back
 - **Mode A** → attach email / LinkedIn to the known recruiter (same identity by
@@ -171,11 +268,14 @@ table's workspace gets a NEW one — then `focusTableIds:[tableId]` points at a
 table the agent can't see and the call fails `400 WORKSPACE_TABLE_MISMATCH` (the
 focusTableIds looks like it "disappeared"). So:
 
-- Path A avoids this entirely — no separate table, no `focusTableIds`.
-- For Path B, the table and the agent must be in the **same workspace**: bind the
-  agent to your table's workspace (verify the exact param against the live API —
-  do NOT guess), or attach the table with `attachments:[{ kind:"table", tableId }]`
-  (which also requires same workspace, else `400 INVALID_ATTACHMENT`).
+- The default table-creation flow avoids this entirely — the agent makes the
+  table in its OWN workspace, no separate table, no `focusTableIds` on the first
+  run. A follow-up run on that table is on the SAME agent, so still same workspace.
+- Only the rare pre-upsert escape hatch can hit it: there the table and the agent
+  must be in the **same workspace** — bind the agent to your table's workspace
+  (verify the exact param against the live API — do NOT guess), or attach the table
+  with `attachments:[{ kind:"table", tableId }]` (also requires same workspace,
+  else `400 INVALID_ATTACHMENT`).
 - If `focusTableIds` seems to come back empty, you almost certainly got a
   `400 WORKSPACE_TABLE_MISMATCH` — **read the error code**; do not invent a "sync
   lag" theory.
@@ -320,8 +420,8 @@ key is still required). Check `GET /api/v2/account/credits` before large runs.
 ## Boundaries
 
 - v2 only; never call `/api/v1/*`.
-- Do not collect source data here (use Apify); do not send email here (use
-  ZeptoMail).
+- Do not collect source data here (use Apify); do not draft email here (use the
+  zeptomail-email skill, which drafts only and never sends).
 - Never fabricate `agentId` / `runId` / `tableId` — use only ids seen in prior
   responses, else `GET /api/v2/tables`.
 - Public professional data only; no private / hidden contact data.
